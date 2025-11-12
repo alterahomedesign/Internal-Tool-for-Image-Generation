@@ -1,0 +1,5 @@
+{
+  "name": "AI Furniture Photoshoot",
+  "description": "An internal tool for a furniture business to generate professional product photos and descriptions from user-uploaded images using AI. It creates studio shots, lifestyle images for web and social media, and suggests product names and descriptions. Users can also edit the generated images with text prompts and download all assets in a ZIP file.",
+  "requestFramePermissions": []
+}
