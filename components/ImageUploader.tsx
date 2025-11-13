@@ -1,18 +1,31 @@
 import React, { useCallback, useState } from 'react';
 import { UploadIcon, GenerateIcon } from './icons';
+import { CreativeStyle } from '../types';
 
 interface ImageUploaderProps {
   uploadedFiles: File[];
   setUploadedFiles: React.Dispatch<React.SetStateAction<File[]>>;
   onGenerate: () => void;
   isGenerating: boolean;
+  creativeStyle: CreativeStyle;
+  setCreativeStyle: React.Dispatch<React.SetStateAction<CreativeStyle>>;
 }
+
+const styleOptions: { id: CreativeStyle; name: string; description: string }[] = [
+    { id: 'modern_suburban', name: 'Modern Suburban', description: 'Clean, upscale, and versatile.' },
+    { id: 'scandinavian', name: 'Bright & Airy Scandinavian', description: 'Minimalist, light-filled, with natural woods.' },
+    { id: 'moody_luxurious', name: 'Moody & Luxurious', description: 'Dramatic, sophisticated, with rich textures.' },
+    { id: 'warm_rustic', name: 'Warm & Rustic', description: 'Cozy and inviting with brick and warm woods.' },
+    { id: 'industrial_loft', name: 'Industrial Loft', description: 'Urban, edgy, with brick, metal, and concrete.' },
+];
 
 export const ImageUploader: React.FC<ImageUploaderProps> = ({
   uploadedFiles,
   setUploadedFiles,
   onGenerate,
   isGenerating,
+  creativeStyle,
+  setCreativeStyle,
 }) => {
   const [isDragging, setIsDragging] = useState(false);
 
@@ -103,6 +116,29 @@ export const ImageUploader: React.FC<ImageUploaderProps> = ({
           </div>
         </div>
       )}
+      
+       <div className="bg-white p-6 rounded-lg shadow-md border border-gray-200">
+            <label htmlFor="creative-style" className="block text-lg font-semibold text-gray-800 mb-2">
+                Choose a Creative Style
+            </label>
+            <p className="text-sm text-gray-600 mb-4">Select an art direction for the photoshoot. This will influence the environments, lighting, and overall mood of the lifestyle images.</p>
+            <select
+                id="creative-style"
+                value={creativeStyle}
+                onChange={(e) => setCreativeStyle(e.target.value as CreativeStyle)}
+                className="block w-full px-3 py-2 bg-white border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+                >
+                {styleOptions.map(option => (
+                    <option key={option.id} value={option.id}>
+                        {option.name}
+                    </option>
+                ))}
+            </select>
+             <p className="text-xs text-gray-500 mt-2">
+                {styleOptions.find(opt => opt.id === creativeStyle)?.description}
+            </p>
+        </div>
+
 
       <div className="flex justify-center">
         <button

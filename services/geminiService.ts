@@ -1,5 +1,5 @@
 import { GoogleGenAI, Type, Modality } from "@google/genai";
-import { GeneratedContent, GeneratedImage, ProductDetails } from '../types';
+import { GeneratedContent, GeneratedImage, ProductDetails, CreativeStyle } from '../types';
 import { fileToBase64 } from "../utils/fileUtils";
 
 // API key must be from environment variables for security and proper configuration.
@@ -48,9 +48,54 @@ const analyzeFurnitureType = async (base64Image: string): Promise<string> => {
   }
 };
 
+const generateSocialMediaCaption = async (base64Image: string, productName: string): Promise<string> => {
+    const prompt = `Based on the image and the product name "${productName}", write a captivating and short social media caption. Include 2-3 relevant hashtags. The tone should be inspiring and aspirational.`;
+    const imagePart = {
+        inlineData: {
+            mimeType: 'image/jpeg',
+            data: base64Image.split(',')[1],
+        },
+    };
+    const response = await ai.models.generateContent({
+        model: 'gemini-2.5-flash',
+        contents: { parts: [imagePart, { text: prompt }] },
+    });
+    return response.text;
+};
 
-const generateProductDetails = async (base64Image: string): Promise<ProductDetails> => {
-  const prompt = 'Based on the provided image of a furniture piece, generate a creative and appealing product description and 3 distinct, marketable names for it. The description should highlight its style, materials, and potential use cases.';
+export const regenerateDetailsFromNewName = async (imageFile: File, newName: string): Promise<Partial<ProductDetails>> => {
+    const base64Image = await fileToBase64(imageFile);
+    const imagePart = {
+        inlineData: {
+            mimeType: 'image/jpeg',
+            data: base64Image.split(',')[1],
+        },
+    };
+    const prompt = `Given the product name "${newName}", regenerate a compelling product description (HTML format), a concise SEO title (under 60 characters), and an engaging SEO meta description (under 160 characters) for the furniture in the image.`;
+    
+    const response = await ai.models.generateContent({
+        model: 'gemini-2.5-pro',
+        contents: { parts: [imagePart, { text: prompt }] },
+        config: {
+            responseMimeType: 'application/json',
+            responseSchema: {
+                type: Type.OBJECT,
+                properties: {
+                    description: { type: Type.STRING },
+                    seoTitle: { type: Type.STRING },
+                    seoDescription: { type: Type.STRING }
+                },
+                required: ['description', 'seoTitle', 'seoDescription']
+            }
+        }
+    });
+
+    return JSON.parse(response.text);
+};
+
+
+const generateProductDetails = async (base64Image: string): Promise<Omit<ProductDetails, 'socialMediaCaption'>> => {
+  const prompt = 'Based on the provided image of a furniture piece, generate the following for an e-commerce store: a creative and appealing product description (in HTML format, using paragraphs and lists where appropriate), 3 distinct marketable names, a list of 5-7 relevant product tags, a concise SEO title (under 60 characters), and a compelling SEO meta description (under 160 characters).';
   const imagePart = {
     inlineData: {
       mimeType: 'image/jpeg',
@@ -59,7 +104,7 @@ const generateProductDetails = async (base64Image: string): Promise<ProductDetai
   };
 
   const response = await ai.models.generateContent({
-    model: 'gemini-2.5-flash',
+    model: 'gemini-2.5-pro', // Using a more powerful model for better structured output
     contents: { parts: [imagePart, { text: prompt }] },
     config: {
         responseMimeType: 'application/json',
@@ -73,16 +118,29 @@ const generateProductDetails = async (base64Image: string): Promise<ProductDetai
                 },
                 description: {
                     type: Type.STRING,
-                    description: "A detailed and appealing product description."
+                    description: "A detailed and appealing product description in HTML format."
+                },
+                tags: {
+                    type: Type.ARRAY,
+                    items: { type: Type.STRING },
+                    description: "An array of 5-7 relevant e-commerce tags."
+                },
+                seoTitle: {
+                    type: Type.STRING,
+                    description: "A concise SEO title (under 60 characters)."
+                },
+                seoDescription: {
+                    type: Type.STRING,
+                    description: "A compelling SEO meta description (under 160 characters)."
                 }
             },
-            required: ['names', 'description']
+            required: ['names', 'description', 'tags', 'seoTitle', 'seoDescription']
         }
     }
   });
 
   const jsonString = response.text;
-  return JSON.parse(jsonString) as ProductDetails;
+  return JSON.parse(jsonString);
 };
 
 export const editImageWithGemini = async (
@@ -124,56 +182,153 @@ export const editImageWithGemini = async (
     return part.inlineData.data;
 };
 
+const getPromptLibraries = (category: string) => {
+    const commonInstructions = "The furniture's texture must be rendered with hyper-realistic fidelity. The final image must be an ultra-realistic, cinematic photograph. There should be NO vignetting, lens flare, or artificial light gradients. The furniture must be perfectly integrated with realistic contact shadows. Avoid showing any cityscapes or prominent sky. Ensure all areas, including the edges and corners of the frame, are free of any unnatural shading, discoloration, or grey spots.";
+
+    const scenes = {
+        modern_suburban: {
+            living: [
+                { setting: "Modern Open-Concept Living Room", prompt: `Task: Place the furniture from the user's image, shot from a straight-on perspective, into a spacious, open-concept living room within a high-end suburban house. The room features light oak hardwood floors, high ceilings, and a neutral, minimalist color palette. The primary light source is bright, indirect natural light from a large wall of glass (out of frame), creating a soft, airy ambiance. Decor is sparse and tasteful. ${commonInstructions}` },
+                { setting: "Suburban Sunroom", prompt: `Task: Integrate the furniture from the user's image, captured from a dynamic three-quarter view, into a bright and airy sunroom in an upscale suburban house. The room is surrounded by a lush green garden visible through large, clean windows (out of frame). The lighting is soft and diffused, filling the space evenly. The floor is a light-colored polished stone tile. The atmosphere is serene and connected to nature. ${commonInstructions}` },
+            ],
+            dining: [
+                 { setting: "Formal Suburban Dining Room", prompt: `Task: Stage the table from the user's image, shot from a slightly elevated angle, in the formal dining room of an upscale modern suburban house. The room features elegant wainscoting, dark polished hardwood floors, and is illuminated by a large, contemporary chandelier that provides warm, focused light. The scene feels sophisticated and ready for entertaining. ${commonInstructions}` },
+                 { setting: "Bright Eat-in Kitchen", prompt: `Task: Place the table from the user's image, from a casual, side-on perspective, within a spacious eat-in kitchen area in a modern suburban house. The background features sleek, handleless white cabinets and a marble kitchen island. Abundant natural light streams in from a large bay window (out of frame), creating a bright and welcoming daytime scene. ${commonInstructions}` },
+            ],
+            office: [
+                { setting: "Peaceful Home Office", prompt: `Task: Position the office furniture from the user's image, shot from a classic three-quarter view, in a dedicated home office in an upscale suburban house. A large picture window (out of frame) overlooks a serene, landscaped backyard, providing ample, calm natural light. The walls are a calming, muted greige. The space is uncluttered and conducive to focus. ${commonInstructions}` },
+                { setting: "Loft Workspace", prompt: `Task: Integrate the office furniture from the user's image, from a straight-on perspective, into a designated office nook within a large, open-plan loft area of a suburban house. The space is defined by a stylish area rug over polished concrete floors. The lighting is a mix of natural light from a skylight (out of frame) and modern track lighting. ${commonInstructions}` },
+            ],
+             bedroom: [
+                { setting: "Serene Master Bedroom", prompt: `Task: Place the furniture from the user's image, shot from a straight-on angle, in a spacious master bedroom in a modern suburban house. The atmosphere is calm and serene, with a neutral color palette and plush, light-colored carpeting. Soft, indirect morning light fills the space from a large sliding door leading to a private balcony (out of frame). ${commonInstructions}` },
+                { setting: "Chic Guest Bedroom", prompt: `Task: Integrate the furniture from the user's image, from a casual, three-quarter angle, into a chic and welcoming guest bedroom in a modern suburban house. The room is well-appointed but not cluttered. The lighting is warm and inviting, coming from stylish bedside sconces and a central ceiling fixture, creating a cozy evening ambiance. ${commonInstructions}` },
+            ]
+        },
+        scandinavian: {
+             living: [
+                { setting: "Airy Scandinavian Loft", prompt: `Task: Place the furniture from the user's image, shot from a low angle, into a bright, airy Scandinavian-style loft. The room has whitewashed brick walls, pale Dinesen-style wood floors, and is flooded with soft, natural light from large, black-framed windows (out of frame). The decor is minimal, featuring a few carefully chosen plants and a simple, textured rug. ${commonInstructions}` },
+                { setting: "Minimalist Living Space", prompt: `Task: Integrate the furniture from the user's image, from a three-quarter view, into a minimalist Scandinavian living space. The walls are pure white, the flooring is light ash wood. A single, large abstract art piece hangs on the wall. The lighting is diffuse and even, creating a calm and tranquil mood. ${commonInstructions}` },
+            ],
+            dining: [{ setting: "Scandinavian Dining Nook", prompt: `Task: Place the table from the user's image into a cozy Scandinavian dining nook with a built-in light wood bench and simple pendant lighting. ${commonInstructions}`}],
+            office: [{ setting: "Functional Scandi Office", prompt: `Task: Stage the office furniture in a functional and clean Scandinavian home office with birch plywood details and excellent natural light. ${commonInstructions}`}],
+            bedroom: [{ setting: "Restful Scandinavian Bedroom", prompt: `Task: Place the bed/furniture in a restful Scandinavian bedroom with layered neutral linens, a simple platform bed frame, and soft morning light. ${commonInstructions}`}],
+        },
+        moody_luxurious: {
+             living: [
+                { setting: "Elegant Evening Lounge", prompt: `Task: Place the furniture from the user's image, shot straight-on, into a moody and luxurious lounge. The walls are a deep charcoal grey, floors are dark, polished herringbone wood. The room is illuminated by sophisticated, warm artificial light from a modern brass chandelier and a few spotlights, creating dramatic highlights and shadows. The ambiance is exclusive and elegant. ${commonInstructions}` },
+                { setting: "Sophisticated Study", prompt: `Task: Integrate the furniture from the user's image, from a classic three-quarter angle, into a sophisticated study with floor-to-ceiling dark wood bookshelves. A single, low-hanging pendant light casts a warm, focused glow on the furniture. The mood is intimate, perfect for a high-end catalog. ${commonInstructions}` },
+            ],
+            dining: [{ setting: "Dramatic Dining Room", prompt: `Task: Stage the table in a dramatic, dark-walled dining room, lit by candlelight and a statement chandelier. Textures like velvet and dark marble are present. ${commonInstructions}`}],
+            office: [{ setting: "Executive Home Office", prompt: `Task: Place the office furniture in an executive home office with dark paneled walls, a leather-topped desk, and focused task lighting. The mood is powerful and serious. ${commonInstructions}`}],
+            bedroom: [{ setting: "Luxury Hotel-Style Bedroom", prompt: `Task: Integrate the furniture into a luxurious, hotel-style bedroom with dark, textured wallpaper, plush carpets, and sophisticated accent lighting. ${commonInstructions}`}],
+        },
+        warm_rustic: {
+             living: [
+                { setting: "Cozy Farmhouse Living Room", prompt: `Task: Place the furniture from the user's image, from a slightly low angle, into a cozy, modern farmhouse living room. The scene features a whitewashed exposed brick wall and wide-plank, reclaimed wood floors. The room is filled with warm, inviting light from a fireplace (glowing, out of frame). The atmosphere is comfortable and authentic. ${commonInstructions}` },
+                { setting: "Rustic Converted Barn", prompt: `Task: Integrate the furniture from the user's image, from a straight-on perspective, into a spacious converted barn with high ceilings and exposed wooden beams. The floor is polished concrete with a large, neutral-toned jute rug. The lighting is a mix of natural light from large barn doors (out of frame) and warm, industrial-style Edison bulb fixtures. ${commonInstructions}` },
+            ],
+            dining: [{ setting: "Rustic Harvest Kitchen", prompt: `Task: Stage the table in a rustic kitchen with a large harvest table, terracotta floor tiles, and warm pendant lighting. ${commonInstructions}`}],
+            office: [{ setting: "Comfortable Den Office", prompt: `Task: Place the office furniture in a comfortable den-style office with wood paneling, a worn leather rug, and warm light from a desk lamp. ${commonInstructions}`}],
+            bedroom: [{ setting: "Cozy Cabin Bedroom", prompt: `Task: Integrate the furniture into a cozy cabin bedroom with wood-paneled walls, a plush flannel duvet, and the warm glow of a bedside lamp. ${commonInstructions}`}],
+        },
+        industrial_loft: {
+            living: [
+                { setting: "Urban Industrial Loft", prompt: `Task: Place the furniture from the user's image, from a three-quarter view, into a spacious industrial loft apartment. The room has high ceilings with exposed ductwork, a weathered red brick accent wall, and polished concrete floors. Light streams in from massive, black-paned factory windows (out of frame). The aesthetic is urban, edgy, and modern. ${commonInstructions}` },
+                { setting: "Artist's Loft Studio", prompt: `Task: Integrate the furniture from the user's image, from a straight-on angle, into a multi-purpose artist's loft. The space is open and features scuffed hardwood floors and large, paint-splattered canvases leaning against a white brick wall. Track lighting on the ceiling illuminates the scene with focused, gallery-style light. The vibe is creative and eclectic. ${commonInstructions}` },
+            ],
+            dining: [{ setting: "Loft Dining Area", prompt: `Task: Stage the table in an industrial loft dining area with a large, rustic wood and metal table, mismatched metal chairs, and oversized industrial pendant lights overhead. ${commonInstructions}`}],
+            office: [{ setting: "Startup-Style Loft Office", prompt: `Task: Place the office furniture in a home office corner of an industrial loft. The scene includes an exposed metal pipe shelving unit and a view of a brick wall. Lighting is functional and modern. ${commonInstructions}`}],
+            bedroom: [{ setting: "Mezzanine Loft Bedroom", prompt: `Task: Integrate the furniture into a bedroom on a mezzanine level in an industrial loft. A low-slung platform bed and black metal railings are visible. The lighting is soft and moody from bedside Edison lamps. ${commonInstructions}`}],
+        },
+    };
+    
+    let promptsForCategory;
+    switch (category) {
+        case 'sofa':
+        case 'chair':
+        case 'storage':
+            promptsForCategory = {
+                modern_suburban: scenes.modern_suburban.living,
+                scandinavian: scenes.scandinavian.living,
+                moody_luxurious: scenes.moody_luxurious.living,
+                warm_rustic: scenes.warm_rustic.living,
+                industrial_loft: scenes.industrial_loft.living,
+            };
+            break;
+        case 'table':
+             promptsForCategory = {
+                modern_suburban: scenes.modern_suburban.dining,
+                scandinavian: scenes.scandinavian.dining,
+                moody_luxurious: scenes.moody_luxurious.dining,
+                warm_rustic: scenes.warm_rustic.dining,
+                industrial_loft: scenes.industrial_loft.dining,
+            };
+            break;
+        case 'office':
+             promptsForCategory = {
+                modern_suburban: scenes.modern_suburban.office,
+                scandinavian: scenes.scandinavian.office,
+                moody_luxurious: scenes.moody_luxurious.office,
+                warm_rustic: scenes.warm_rustic.office,
+                industrial_loft: scenes.industrial_loft.office,
+            };
+            break;
+        case 'bed':
+             promptsForCategory = {
+                modern_suburban: scenes.modern_suburban.bedroom,
+                scandinavian: scenes.scandinavian.bedroom,
+                moody_luxurious: scenes.moody_luxurious.bedroom,
+                warm_rustic: scenes.warm_rustic.bedroom,
+                industrial_loft: scenes.industrial_loft.bedroom,
+            };
+            break;
+        default:
+             promptsForCategory = {
+                modern_suburban: scenes.modern_suburban.living,
+                scandinavian: scenes.scandinavian.living,
+                moody_luxurious: scenes.moody_luxurious.living,
+                warm_rustic: scenes.warm_rustic.living,
+                industrial_loft: scenes.industrial_loft.living,
+            };
+    }
+    return promptsForCategory;
+};
+
+
 export const generateFullPhotoshoot = async (
   imageFile: File,
-  updateMessage: (message: string) => void
+  updateMessage: (message: string) => void,
+  style: CreativeStyle,
 ): Promise<GeneratedContent> => {
   const base64Image = await fileToBase64(imageFile);
 
   updateMessage('Analyzing furniture type...');
   const furnitureCategory = await analyzeFurnitureType(base64Image);
+  
+  const lifestylePrompts = getPromptLibraries(furnitureCategory)[style];
 
-  const getLifestylePrompts = (category: string) => {
-    switch (category) {
-      case 'sofa':
-      case 'chair':
-        return [
-          { setting: "Modern House Living Room", prompt: "Task: Place the furniture from the user's image into a bright, airy living room in a modern house. The scene should be shot on a professional DSLR camera with a 35mm lens to capture a natural perspective. Light should stream in from large, floor-to-ceiling windows, creating soft, natural highlights and long, gentle shadows on the light oak floor. The furniture's texture (fabric weave, wood grain) must be rendered with extreme fidelity, making it look tangible and convincingly real. The overall mood should be serene and aspirational, worthy of a feature in Architectural Digest. Ensure the object is perfectly integrated, with realistic contact shadows where it meets the rug or floor." },
-          { setting: "Cozy Den", prompt: "Task: Integrate the furniture from the user's image into a cozy, sophisticated living room in a contemporary house. The lighting should be warmer, suggestive of late afternoon sun, with dramatic shadows that add depth. The room should be styled with a plush wool rug, curated bookshelves, and healthy indoor plants. The furniture should be the hero of the shot, with its materials rendered with convincing, high-fidelity textures that look tangible and authentic under the warm light. Capture this as a hyper-realistic, cinematic photograph with a shallow depth of field, making the furniture pop." },
-        ];
-      case 'table':
-        return [
-          { setting: "Spacious Dining Room", prompt: "Task: Stage the table from the user's image in an elegant, spacious dining room of a modern house. The shot should be composed as if by a professional interior photographer. A large window out of frame should cast soft, directional light across the table, highlighting the material's finish and rendering its texture (e.g., fine wood grain, subtle stone veins, metallic sheen) with incredible realism. The shadows cast by the table and any (minimal) props should be soft and realistic. The floor should be polished concrete or dark hardwood. The final image must be ultra-realistic, with perfect perspective and lighting that feels natural and inviting." },
-          { setting: "Modern Kitchen", prompt: "Task: Place the table from the user's image within a high-end, minimalist open-plan kitchen. The lighting should be bright and clean, a mix of natural light from a skylight and soft recessed ceiling lights. The table should appear as a natural part of the kitchen island or dining nook. Ensure reflections on the kitchen's marble countertops or stainless steel appliances are subtle and realistic. The focus should be sharp on the table, with its texture rendered in high detail, showcasing the material's authentic character (e.g. the polish on wood, the cool smoothness of marble). The final image should be a photorealistic shot for a luxury real estate catalog." },
-        ];
-      case 'office':
-        return [
-          { setting: "Sunlit Home Office", prompt: "Task: Place the office furniture from the user's image into a sophisticated and organized home office. The scene should be illuminated by soft, natural light from a large window, creating a calm and productive atmosphere. The composition should be clean, perhaps with a view of a tranquil garden outside. The furniture must be perfectly integrated, with realistic shadows on the hardwood floor and its textures—be it leather, wood, or fabric—rendered with impeccable, convincing detail. The final image should look like a professional photograph from a high-end magazine, emphasizing comfort and style." },
-          { setting: "Elegant Study Room", prompt: "Task: Integrate the office furniture from the user's image into a classic, elegant study with a modern twist. Imagine a room with built-in dark walnut bookshelves. The lighting should be moody and focused, perhaps from a stylish desk lamp casting a warm pool of light, supplemented by soft ambient light. The furniture's materials—the supple texture of leather, the deep grain of wood, the cool finish of metal—must look incredibly realistic, with accurate specular highlights and tangible textures. This should be a cinematic, hyper-realistic photo that conveys a sense of quiet luxury and focus." },
-        ];
-      default: // for bed, storage, other
-        return [
-           { setting: "Modern House Living Room", prompt: "Task: Place the furniture from the user's image into a bright, airy living room in a modern house. The scene should be shot on a professional DSLR camera with a 35mm lens to capture a natural perspective. Light should stream in from large, floor-to-ceiling windows, creating soft, natural highlights and long, gentle shadows on the light oak floor. The furniture's texture (fabric weave, wood grain) must be rendered with extreme fidelity, making it look tangible and convincingly real. The overall mood should be serene and aspirational, worthy of a feature in Architectural Digest. Ensure the object is perfectly integrated, with realistic contact shadows where it meets the rug or floor." },
-          { setting: "Serene Bedroom", prompt: "Place the furniture from the user's image into a serene, minimalist bedroom in a contemporary house. The room should have a calm color palette, soft textiles, and gentle morning light coming through a window. The final image must be a hyper-realistic photograph that creates a sense of peace and comfort, with all furniture textures appearing natural and detailed under the soft light." },
-        ];
-    }
-  };
-
+  const studioNegativePrompt = " The background must be perfectly uniform, with no gradients, shadows, discoloration, or artifacts, especially in the corners.";
+  
   const prompts = {
     studio: [
-      { angle: "Front View", prompt: "Professional product photography. Place the furniture from the image on a pure white, seamless background (#FFFFFF). The camera is positioned directly in front, at a standard height. The lighting should be soft and even, mimicking a large octabox diffuser to showcase the furniture's form and render its material textures with hyper-realistic detail. Fabric weaves, wood grains, and metal finishes must appear tangible and authentic. Create a subtle, soft ground shadow for realism. The final image must be an ultra-realistic, 8k resolution photograph with sharp focus, perfect for a high-end e-commerce catalog." },
-      { angle: "Three-Quarter View (Right)", prompt: "Professional product photography. Position the furniture from the image on a pure white, seamless background (#FFFFFF), angled slightly to the right to reveal its depth. The camera is positioned at a 45-degree angle. Use studio lighting with a key light and a fill light to create gentle depth and dimension, highlighting the form and contours. The textures of all materials (wood, fabric, metal) must appear exceptionally authentic and detailed, capturing subtle surface variations and light interplay. Create a soft, diffused ground shadow. The final image must be an ultra-realistic, 8k resolution photograph with sharp focus." },
-      { angle: "Three-Quarter View (Left)", prompt: "Professional product photography. Position the furniture from the image on a pure white, seamless background (#FFFFFF), angled slightly to the left to showcase its other side. The camera is at a 3/4 angle. The lighting should be bright and clean, emphasizing the product's silhouette and material finish. Render all textures with extreme fidelity; the subtle grain of wood, the delicate weave of fabric, and the smooth sheen of metal must be captured with photorealistic precision. Ensure realistic, soft shadows are cast on the ground. The final image must be an ultra-realistic, 8k resolution photograph with sharp focus, suitable for a product gallery." },
+      { angle: "Front View", prompt: `Professional product photography. Place the furniture from the image on a pure white, seamless background (#FFFFFF). The camera is positioned directly in front, at a standard height. The lighting should be soft and even, mimicking a large octabox diffuser to showcase the furniture's form and render its material textures with hyper-realistic detail. Fabric weaves, wood grains, and metal finishes must appear tangible and authentic. Create a subtle, soft ground shadow for realism. The final image must be an ultra-realistic, 8k resolution photograph with sharp focus, perfect for a high-end e-commerce catalog. ${studioNegativePrompt}` },
+      { angle: "Three-Quarter View (Right)", prompt: `Professional product photography. Position the furniture from the image on a pure white, seamless background (#FFFFFF), angled slightly to the right to reveal its depth. The camera is positioned at a 45-degree angle. Use studio lighting with a key light and a fill light to create gentle depth and dimension, highlighting the form and contours. The textures of all materials (wood, fabric, metal) must appear exceptionally authentic and detailed, capturing subtle surface variations and light interplay. Create a soft, diffused ground shadow. The final image must be an ultra-realistic, 8k resolution photograph with sharp focus. ${studioNegativePrompt}` },
+      { angle: "Three-Quarter View (Left)", prompt: `Professional product photography. Position the furniture from the image on a pure white, seamless background (#FFFFFF), angled slightly to the left to showcase its other side. The camera is at a 3/4 angle. The lighting should be bright and clean, emphasizing the product's silhouette and material finish. Render all textures with extreme fidelity; the subtle grain of wood, the delicate weave of fabric, and the smooth sheen of metal must be captured with photorealistic precision. Ensure realistic, soft shadows are cast on the ground. The final image must be an ultra-realistic, 8k resolution photograph with sharp focus, suitable for a product gallery. ${studioNegativePrompt}` },
     ],
-    lifestyle: getLifestylePrompts(furnitureCategory),
+    lifestyle: lifestylePrompts,
     social: [
       { format: "Instagram Post (Square)", prompt: "Task: Create a trendy, aspirational Instagram post. Place the furniture from the user's image into a beautifully styled, minimalist interior with a Japandi or Scandinavian aesthetic. The lighting must be bright, soft, and natural. The composition within the 1:1 square format should be impeccable, using negative space effectively. The textures of the furniture must be rendered with exceptional detail, making the material—whether it's rich velvet, rustic wood, or sleek metal—look convincingly real and inviting. The final image needs to be an ultra-realistic photograph that would stop someone scrolling through their feed.", aspectRatio: '1:1' as const },
       { format: "Instagram Story (Vertical)", prompt: "Task: Generate a captivating 9:16 vertical image for an Instagram Story. Place the furniture from the user's image into a stylish, relatable corner of a modern home. Use a dynamic composition that leads the eye through the frame. The lighting should be soft and flattering, like early morning light. The scene should feel authentic and unstaged. The furniture's material and texture should be clearly visible and appealing, rendered with high fidelity to look great even on a small screen. The final photograph must be hyper-realistic and high-resolution, making the viewer feel like they've stumbled upon a beautiful moment in a real home.", aspectRatio: '9:16' as const },
     ],
   };
 
-  updateMessage('Generating product details...');
-  const details = await generateProductDetails(base64Image);
+  updateMessage('Generating product details, tags, and SEO metadata...');
+  const initialDetails = await generateProductDetails(base64Image);
+  
+  updateMessage('Generating social media caption...');
+  const socialCaption = await generateSocialMediaCaption(base64Image, initialDetails.names[0]);
+  
+  const details: ProductDetails = { ...initialDetails, socialMediaCaption: socialCaption };
 
   const allImages: GeneratedImage[] = [];
 
@@ -203,5 +358,5 @@ export const generateFullPhotoshoot = async (
   
   updateMessage('Finalizing your photoshoot...');
 
-  return { details, images: allImages };
+  return { details, images: allImages, furnitureCategory };
 };

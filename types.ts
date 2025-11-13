@@ -11,9 +11,16 @@ export interface GeneratedImage {
 export interface ProductDetails {
   names: string[];
   description: string;
+  tags: string[];
+  seoTitle: string;
+  seoDescription: string;
+  socialMediaCaption: string;
 }
 
 export interface GeneratedContent {
   images: GeneratedImage[];
   details: ProductDetails;
+  furnitureCategory: string;
 }
+
+export type CreativeStyle = 'modern_suburban' | 'scandinavian' | 'moody_luxurious' | 'warm_rustic' | 'industrial_loft';

@@ -2,17 +2,19 @@ import React, { useState, useCallback } from 'react';
 import { ImageUploader } from './components/ImageUploader';
 import { ResultsDisplay } from './components/ResultsDisplay';
 import { LoadingOverlay } from './components/LoadingOverlay';
-import { GeneratedContent, GeneratedImage } from './types';
-import { generateFullPhotoshoot, editImageWithGemini } from './services/geminiService';
+import { GeneratedContent, GeneratedImage, CreativeStyle } from './types';
+import { generateFullPhotoshoot, editImageWithGemini, regenerateDetailsFromNewName } from './services/geminiService';
 import { HeaderIcon } from './components/icons';
 
 const App: React.FC = () => {
   const [uploadedFiles, setUploadedFiles] = useState<File[]>([]);
   const [generatedContent, setGeneratedContent] = useState<GeneratedContent | null>(null);
   const [isGenerating, setIsGenerating] = useState<boolean>(false);
+  const [isUpdatingDetails, setIsUpdatingDetails] = useState<boolean>(false);
   const [generatingMessage, setGeneratingMessage] = useState<string>('');
   const [editingImageId, setEditingImageId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [creativeStyle, setCreativeStyle] = useState<CreativeStyle>('modern_suburban');
 
   const handleGenerate = async () => {
     if (uploadedFiles.length === 0) {
@@ -25,7 +27,7 @@ const App: React.FC = () => {
     setGeneratedContent(null);
 
     try {
-      const content = await generateFullPhotoshoot(uploadedFiles[0], setGeneratingMessage);
+      const content = await generateFullPhotoshoot(uploadedFiles[0], setGeneratingMessage, creativeStyle);
       setGeneratedContent(content);
     } catch (err) {
       console.error(err);
@@ -36,6 +38,33 @@ const App: React.FC = () => {
       setGeneratingMessage('');
     }
   };
+
+  const handleRegenerateDetails = useCallback(async (newName: string) => {
+    if (!generatedContent || uploadedFiles.length === 0) return;
+    
+    setIsUpdatingDetails(true);
+    setError(null);
+    try {
+        const newDetails = await regenerateDetailsFromNewName(uploadedFiles[0], newName);
+        setGeneratedContent(prevContent => {
+            if (!prevContent) return null;
+            return {
+                ...prevContent,
+                details: {
+                    ...prevContent.details,
+                    ...newDetails,
+                }
+            };
+        });
+    } catch (err) {
+        console.error(err);
+        const errorMessage = err instanceof Error ? err.message : 'An unknown error occurred during detail regeneration.';
+        setError(`Failed to regenerate details: ${errorMessage}`);
+    } finally {
+        setIsUpdatingDetails(false);
+    }
+  }, [generatedContent, uploadedFiles]);
+
 
   const handleRegenerateImage = useCallback(async (imageToRegen: GeneratedImage) => {
     if (!generatedContent || uploadedFiles.length === 0) return;
@@ -82,6 +111,7 @@ const App: React.FC = () => {
         img.id === imageId ? { ...img, base64: newBase64, sourcePrompt: prompt } : img
       );
       setGeneratedContent({ ...generatedContent, images: updatedImages });
+    // FIX: Added curly braces to the catch block to correctly handle errors.
     } catch (err) {
       console.error(err);
       const errorMessage = err instanceof Error ? err.message : 'An unknown error occurred during edit.';
@@ -129,6 +159,8 @@ const App: React.FC = () => {
               setUploadedFiles={setUploadedFiles}
               onGenerate={handleGenerate}
               isGenerating={isGenerating}
+              creativeStyle={creativeStyle}
+              setCreativeStyle={setCreativeStyle}
             />
           </div>
         ) : (
@@ -136,7 +168,9 @@ const App: React.FC = () => {
             content={generatedContent}
             onEditImage={handleEditImage}
             onRegenerateImage={handleRegenerateImage}
+            onRegenerateDetails={handleRegenerateDetails}
             editingImageId={editingImageId}
+            isUpdatingDetails={isUpdatingDetails}
           />
         )}
          {error && (
