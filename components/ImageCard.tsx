@@ -5,7 +5,7 @@ import { EditIcon, RegenerateIcon } from './icons';
 interface ImageCardProps {
   image: GeneratedImage;
   onEdit: (imageId: string, prompt: string) => Promise<void>;
-  onRegenerate: (image: GeneratedImage) => Promise<void>;
+  onRegenerate: (image: GeneratedImage, newPrompt?: string) => Promise<void>;
   isEditing: boolean;
 }
 
@@ -20,7 +20,7 @@ export const ImageCard: React.FC<ImageCardProps> = ({ image, onEdit, onRegenerat
   };
 
   const handleRegenerate = () => {
-    onRegenerate(image);
+    onRegenerate(image, editPrompt);
   };
 
   return (
@@ -64,6 +64,7 @@ export const ImageCard: React.FC<ImageCardProps> = ({ image, onEdit, onRegenerat
           onClick={handleRegenerate}
           disabled={isEditing}
           className="mt-2 w-full flex items-center justify-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:bg-gray-100 disabled:text-gray-400 transition-colors"
+          title={editPrompt.trim() ? "Regenerate image from source using the new prompt above" : "Regenerate image from source with original prompt"}
         >
           <RegenerateIcon />
           Regenerate

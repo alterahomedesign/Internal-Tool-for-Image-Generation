@@ -41,3 +41,21 @@ export const ShopifyIcon = () => (
         <path d="M18.11 2.3a1.53 1.53 0 0 0-1.29.58l-3.3 4.4A1.55 1.55 0 0 0 13.23 9c0 .72.51 1.33 1.2 1.5a1.44 1.44 0 0 0 1.57-.45l3.3-4.4a1.54 1.54 0 0 0-1.19-2.35zM9.54 9.18a1.53 1.53 0 0 0-1.3-.58H3.89l5-6.62a1.54 1.54 0 0 0-1-2.43 1.59 1.59 0 0 0-.32 0c-.76.16-1.3.76-1.42 1.5l-5 6.62a1.53 1.53 0 0 0 1.29 2.3H9.25a1.55 1.55 0 0 0 .29-3.02zm8.67 3.59h-4.35l-5 6.62a1.54 1.54 0 0 0 1 2.43c.1 0 .22.05.32.05s.76-.16 1.3-.76l5-6.62a1.53 1.53 0 0 0-1.29-2.3h.02z" />
     </svg>
 );
+
+export const CopyIcon = () => (
+    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+        <path strokeLinecap="round" strokeLinejoin="round" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+    </svg>
+);
+
+export const CheckIcon = () => (
+    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+        <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+    </svg>
+);
+
+export const PlusIcon = () => (
+    <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+        <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v12m6-6H6" />
+    </svg>
+);

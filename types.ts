@@ -5,7 +5,7 @@ export interface GeneratedImage {
   base64: string;
   sourcePrompt: string; // The prompt used to generate it
   sourceAspectRatio: '1:1' | '16:9' | '9:16';
-  category: 'studio' | 'lifestyle' | 'social';
+  category: 'studio' | 'lifestyle';
 }
 
 export interface ProductDetails {
@@ -15,11 +15,22 @@ export interface ProductDetails {
   seoTitle: string;
   seoDescription: string;
   socialMediaCaption: string;
+  measurements: string;
+  shipping: string;
+  careInstructions: string;
+  suggestedPrice: string;
+}
+
+// New types for variations
+export interface VariationResult {
+  id: string; // Unique ID for the result group
+  variation: Record<string, string>; // e.g. { Size: 'Three seats', Color: 'Beige' }
+  images: GeneratedImage[];
 }
 
 export interface GeneratedContent {
-  images: GeneratedImage[];
-  details: ProductDetails;
+  baseDetails: ProductDetails;
+  variationResults: VariationResult[];
   furnitureCategory: string;
 }
 

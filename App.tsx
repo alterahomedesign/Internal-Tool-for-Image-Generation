@@ -2,23 +2,21 @@ import React, { useState, useCallback } from 'react';
 import { ImageUploader } from './components/ImageUploader';
 import { ResultsDisplay } from './components/ResultsDisplay';
 import { LoadingOverlay } from './components/LoadingOverlay';
-import { GeneratedContent, GeneratedImage, CreativeStyle } from './types';
-import { generateFullPhotoshoot, editImageWithGemini, regenerateDetailsFromNewName } from './services/geminiService';
+import { GeneratedContent, GeneratedImage } from './types';
+import { generateVariationsFromSpecSheet, editImageWithGemini, regenerateImageFromSource } from './services/geminiService';
 import { HeaderIcon } from './components/icons';
 
 const App: React.FC = () => {
-  const [uploadedFiles, setUploadedFiles] = useState<File[]>([]);
+  const [sourceImages, setSourceImages] = useState<File[]>([]);
   const [generatedContent, setGeneratedContent] = useState<GeneratedContent | null>(null);
   const [isGenerating, setIsGenerating] = useState<boolean>(false);
-  const [isUpdatingDetails, setIsUpdatingDetails] = useState<boolean>(false);
   const [generatingMessage, setGeneratingMessage] = useState<string>('');
   const [editingImageId, setEditingImageId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [creativeStyle, setCreativeStyle] = useState<CreativeStyle>('modern_suburban');
 
   const handleGenerate = async () => {
-    if (uploadedFiles.length === 0) {
-      setError('Please upload at least one image.');
+    if (sourceImages.length === 0) {
+      setError('Please upload a product specification sheet.');
       return;
     }
 
@@ -27,7 +25,7 @@ const App: React.FC = () => {
     setGeneratedContent(null);
 
     try {
-      const content = await generateFullPhotoshoot(uploadedFiles[0], setGeneratingMessage, creativeStyle);
+      const content = await generateVariationsFromSpecSheet(sourceImages, setGeneratingMessage);
       setGeneratedContent(content);
     } catch (err) {
       console.error(err);
@@ -39,63 +37,51 @@ const App: React.FC = () => {
     }
   };
 
-  const handleRegenerateDetails = useCallback(async (newName: string) => {
-    if (!generatedContent || uploadedFiles.length === 0) return;
-    
-    setIsUpdatingDetails(true);
-    setError(null);
-    try {
-        const newDetails = await regenerateDetailsFromNewName(uploadedFiles[0], newName);
-        setGeneratedContent(prevContent => {
-            if (!prevContent) return null;
-            return {
-                ...prevContent,
-                details: {
-                    ...prevContent.details,
-                    ...newDetails,
-                }
-            };
-        });
-    } catch (err) {
-        console.error(err);
-        const errorMessage = err instanceof Error ? err.message : 'An unknown error occurred during detail regeneration.';
-        setError(`Failed to regenerate details: ${errorMessage}`);
-    } finally {
-        setIsUpdatingDetails(false);
-    }
-  }, [generatedContent, uploadedFiles]);
+  const handleRegenerateImage = useCallback(async (variationId: string, imageToRegen: GeneratedImage, newPrompt?: string) => {
+      if (!generatedContent || sourceImages.length === 0) return;
 
+      setEditingImageId(imageToRegen.id);
+      setError(null);
 
-  const handleRegenerateImage = useCallback(async (imageToRegen: GeneratedImage) => {
-    if (!generatedContent || uploadedFiles.length === 0) return;
+      try {
+          const variation = generatedContent.variationResults.find(v => v.id === variationId)?.variation;
+          if (!variation) {
+              throw new Error("Could not find the variation to regenerate.");
+          }
+          
+          const finalPrompt = (newPrompt && newPrompt.trim())
+              ? `${imageToRegen.sourcePrompt}. Additional instruction for this regeneration: "${newPrompt}"`
+              : imageToRegen.sourcePrompt;
 
-    setEditingImageId(imageToRegen.id);
-    setError(null);
+          const newBase64 = await regenerateImageFromSource(sourceImages, finalPrompt);
 
-    try {
-      // For regeneration, we use the original uploaded file and the prompt for that specific scene.
-      const newBase64 = await editImageWithGemini(
-        uploadedFiles[0],
-        imageToRegen.sourcePrompt
-      );
+          const updatedResults = generatedContent.variationResults.map(result => {
+              if (result.id === variationId) {
+                  const updatedImages = result.images.map(img => 
+                      img.id === imageToRegen.id ? { ...img, base64: newBase64, sourcePrompt: finalPrompt } : img
+                  );
+                  return { ...result, images: updatedImages };
+              }
+              return result;
+          });
 
-      const updatedImages = generatedContent.images.map((img) =>
-        img.id === imageToRegen.id ? { ...img, base64: newBase64 } : img
-      );
-      setGeneratedContent({ ...generatedContent, images: updatedImages });
-    } catch (err) {
-      console.error(err);
-      const errorMessage = err instanceof Error ? err.message : 'An unknown error occurred during regeneration.';
-      setError(`Regeneration failed for "${imageToRegen.title}": ${errorMessage}`);
-    } finally {
-      setEditingImageId(null);
-    }
-  }, [generatedContent, uploadedFiles]);
+          setGeneratedContent({ ...generatedContent, variationResults: updatedResults });
 
-  const handleEditImage = useCallback(async (imageId: string, prompt: string) => {
+      } catch (err) {
+          console.error(err);
+          const errorMessage = err instanceof Error ? err.message : 'An unknown error occurred during regeneration.';
+          setError(`Regeneration failed for "${imageToRegen.title}": ${errorMessage}`);
+      } finally {
+          setEditingImageId(null);
+      }
+  }, [generatedContent, sourceImages]);
+
+  const handleEditImage = useCallback(async (variationId: string, imageId: string, prompt: string) => {
     if (!generatedContent) return;
+    
+    const variationResult = generatedContent.variationResults.find(vr => vr.id === variationId);
+    const imageToEdit = variationResult?.images.find(img => img.id === imageId);
 
-    const imageToEdit = generatedContent.images.find(img => img.id === imageId);
     if (!imageToEdit) return;
 
     setEditingImageId(imageId);
@@ -103,15 +89,22 @@ const App: React.FC = () => {
 
     try {
        const newBase64 = await editImageWithGemini(
-         `data:image/png;base64,${imageToEdit.base64}`,
+         [`data:image/png;base64,${imageToEdit.base64}`],
          prompt
        );
 
-      const updatedImages = generatedContent.images.map((img) =>
-        img.id === imageId ? { ...img, base64: newBase64, sourcePrompt: prompt } : img
-      );
-      setGeneratedContent({ ...generatedContent, images: updatedImages });
-    // FIX: Added curly braces to the catch block to correctly handle errors.
+      const updatedResults = generatedContent.variationResults.map(result => {
+        if (result.id === variationId) {
+          const updatedImages = result.images.map(img => 
+            img.id === imageId ? { ...img, base64: newBase64, sourcePrompt: prompt } : img
+          );
+          return { ...result, images: updatedImages };
+        }
+        return result;
+      });
+
+      setGeneratedContent({ ...generatedContent, variationResults: updatedResults });
+
     } catch (err) {
       console.error(err);
       const errorMessage = err instanceof Error ? err.message : 'An unknown error occurred during edit.';
@@ -122,7 +115,7 @@ const App: React.FC = () => {
   }, [generatedContent]);
 
   const handleReset = () => {
-    setUploadedFiles([]);
+    setSourceImages([]);
     setGeneratedContent(null);
     setError(null);
   }
@@ -151,16 +144,14 @@ const App: React.FC = () => {
 
       <main className="container mx-auto p-4 sm:p-6 lg:p-8">
         {!generatedContent ? (
-          <div className="max-w-3xl mx-auto">
-            <h2 className="text-2xl font-bold text-center mb-2">Upload Your Furniture Photos</h2>
-            <p className="text-gray-600 text-center mb-6">Upload one or more images of your product. We'll use the first image to generate a complete professional photoshoot.</p>
+          <div className="max-w-4xl mx-auto">
+            <h2 className="text-2xl font-bold text-center mb-2">Create a New Photoshoot from a Spec Sheet</h2>
+            <p className="text-gray-600 text-center mb-6">Upload a product specification sheet first, then add any other reference images (e.g., textures, alternate angles). The AI will analyze the product and generate images for all its variations.</p>
             <ImageUploader
-              uploadedFiles={uploadedFiles}
-              setUploadedFiles={setUploadedFiles}
+              sourceImages={sourceImages}
+              setSourceImages={setSourceImages}
               onGenerate={handleGenerate}
               isGenerating={isGenerating}
-              creativeStyle={creativeStyle}
-              setCreativeStyle={setCreativeStyle}
             />
           </div>
         ) : (
@@ -168,9 +159,7 @@ const App: React.FC = () => {
             content={generatedContent}
             onEditImage={handleEditImage}
             onRegenerateImage={handleRegenerateImage}
-            onRegenerateDetails={handleRegenerateDetails}
             editingImageId={editingImageId}
-            isUpdatingDetails={isUpdatingDetails}
           />
         )}
          {error && (
