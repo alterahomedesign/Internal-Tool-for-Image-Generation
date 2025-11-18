@@ -4,6 +4,8 @@ import { UploadIcon, GenerateIcon, PlusIcon } from './icons';
 interface ImageUploaderProps {
   sourceImages: File[];
   setSourceImages: (files: File[]) => void;
+  userInstructions: string;
+  setUserInstructions: (text: string) => void;
   onGenerate: () => void;
   isGenerating: boolean;
 }
@@ -11,6 +13,8 @@ interface ImageUploaderProps {
 export const ImageUploader: React.FC<ImageUploaderProps> = ({
   sourceImages,
   setSourceImages,
+  userInstructions,
+  setUserInstructions,
   onGenerate,
   isGenerating,
 }) => {
@@ -59,13 +63,13 @@ export const ImageUploader: React.FC<ImageUploaderProps> = ({
 
   return (
     <div className="w-full space-y-6">
-      <div className="bg-white p-6 rounded-lg shadow-md border border-gray-200 h-full flex flex-col">
+      <div className="bg-white p-6 rounded-lg shadow-md border border-gray-200 flex flex-col">
         <h3 className="font-semibold text-lg mb-1">1. Upload Source Images</h3>
-        <p className="text-sm text-gray-500 mb-4">The first image should be the spec sheet. Add others for context (textures, angles).</p>
+        <p className="text-sm text-gray-500 mb-4">The first image should be the spec sheet. Drag & drop more images to add textures or angles.</p>
         
         <label
             htmlFor="file-upload"
-            className={`flex flex-col items-center justify-center w-full flex-grow border-2 border-dashed rounded-lg cursor-pointer transition-colors ${
+            className={`flex flex-col items-center justify-center w-full min-h-[200px] border-2 border-dashed rounded-lg cursor-pointer transition-colors mb-6 ${
               isDragging ? 'border-indigo-500 bg-indigo-50' : 'border-gray-300 bg-gray-50 hover:bg-gray-100'
             }`}
             onDragEnter={onDragEnter}
@@ -74,7 +78,7 @@ export const ImageUploader: React.FC<ImageUploaderProps> = ({
             onDrop={onDrop}
         >
             {sourceImages.length === 0 ? (
-                <div className="flex flex-col items-center justify-center pt-5 pb-6 text-center min-h-[200px]">
+                <div className="flex flex-col items-center justify-center pt-5 pb-6 text-center">
                     <UploadIcon />
                     <p className="mb-2 text-sm text-gray-500"><span className="font-semibold">Click to upload</span> or drag & drop</p>
                     <p className="text-xs text-gray-500">PNG, JPG, WEBP</p>
@@ -91,7 +95,7 @@ export const ImageUploader: React.FC<ImageUploaderProps> = ({
                             />
                             <div className="absolute inset-0 bg-black bg-opacity-0 group-hover:bg-opacity-60 transition-all flex items-center justify-center">
                                 <button
-                                    onClick={(e) => { e.preventDefault(); handleRemoveImage(index); }}
+                                    onClick={(e) => { e.preventDefault(); e.stopPropagation(); handleRemoveImage(index); }}
                                     className="absolute top-1 right-1 bg-red-600 text-white rounded-full p-1.5 opacity-0 group-hover:opacity-100 transition-opacity focus:opacity-100"
                                     aria-label="Remove image"
                                 >
@@ -122,6 +126,18 @@ export const ImageUploader: React.FC<ImageUploaderProps> = ({
               onChange={(e) => handleFileChange(e.target.files)}
             />
         </label>
+
+        <div className="border-t border-gray-100 pt-6">
+            <h3 className="font-semibold text-lg mb-1">2. Instructions (Optional)</h3>
+            <p className="text-sm text-gray-500 mb-3">Add specific details for the AI (e.g., "Use warm lighting," "Place in a loft apartment," "Write a luxury description").</p>
+            <textarea 
+                value={userInstructions}
+                onChange={(e) => setUserInstructions(e.target.value)}
+                placeholder="Enter your custom instructions here..."
+                className="w-full p-3 border border-gray-300 rounded-md focus:ring-indigo-500 focus:border-indigo-500 shadow-sm text-sm min-h-[100px]"
+            />
+        </div>
+
       </div>
 
       <div className="flex justify-center pt-4">

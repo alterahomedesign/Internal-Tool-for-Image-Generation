@@ -8,6 +8,7 @@ import { HeaderIcon } from './components/icons';
 
 const App: React.FC = () => {
   const [sourceImages, setSourceImages] = useState<File[]>([]);
+  const [userInstructions, setUserInstructions] = useState<string>('');
   const [generatedContent, setGeneratedContent] = useState<GeneratedContent | null>(null);
   const [isGenerating, setIsGenerating] = useState<boolean>(false);
   const [generatingMessage, setGeneratingMessage] = useState<string>('');
@@ -25,7 +26,7 @@ const App: React.FC = () => {
     setGeneratedContent(null);
 
     try {
-      const content = await generateVariationsFromSpecSheet(sourceImages, setGeneratingMessage);
+      const content = await generateVariationsFromSpecSheet(sourceImages, userInstructions, setGeneratingMessage);
       setGeneratedContent(content);
     } catch (err) {
       console.error(err);
@@ -116,6 +117,7 @@ const App: React.FC = () => {
 
   const handleReset = () => {
     setSourceImages([]);
+    setUserInstructions('');
     setGeneratedContent(null);
     setError(null);
   }
@@ -145,11 +147,13 @@ const App: React.FC = () => {
       <main className="container mx-auto p-4 sm:p-6 lg:p-8">
         {!generatedContent ? (
           <div className="max-w-4xl mx-auto">
-            <h2 className="text-2xl font-bold text-center mb-2">Create a New Photoshoot from a Spec Sheet</h2>
-            <p className="text-gray-600 text-center mb-6">Upload a product specification sheet first, then add any other reference images (e.g., textures, alternate angles). The AI will analyze the product and generate images for all its variations.</p>
+            <h2 className="text-2xl font-bold text-center mb-2">Create a New Photoshoot</h2>
+            <p className="text-gray-600 text-center mb-6">Upload a product spec sheet and reference images. Add instructions to guide the style.</p>
             <ImageUploader
               sourceImages={sourceImages}
               setSourceImages={setSourceImages}
+              userInstructions={userInstructions}
+              setUserInstructions={setUserInstructions}
               onGenerate={handleGenerate}
               isGenerating={isGenerating}
             />

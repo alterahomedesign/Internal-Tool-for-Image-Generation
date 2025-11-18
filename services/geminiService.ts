@@ -5,7 +5,7 @@ import { fileToBase64 } from "../utils/fileUtils";
 // Lazily initialize the AI client to prevent app crash on load if API key is missing.
 const getAiClient = () => new GoogleGenAI({ apiKey: process.env.API_KEY });
 
-const upscaleInstruction = "If the source image lacks detail, you must upscale it and generate a photorealistic, high-resolution version, inferring realistic textures and fine details.";
+const preservationInstruction = "**CRITICAL INSTRUCTION: You MUST preserve the exact design, shape, proportions, and materials of the furniture from the source images. DO NOT add, remove, or alter any part of the furniture's design. Your ONLY task is to place this exact piece of furniture into the described scene or modify the scene around it. If the source image is low resolution, upscale it while strictly maintaining the original textures and details.**";
 
 interface ParsedSpecSheet {
     productName: string;
@@ -78,7 +78,7 @@ const parseSpecSheet = async (specSheetFile: File): Promise<ParsedSpecSheet> => 
 };
 
 
-const generateBaseProductDetails = async (specSheetFile: File, baseProductName: string): Promise<ProductDetails> => {
+const generateBaseProductDetails = async (specSheetFile: File, baseProductName: string, userInstructions: string): Promise<ProductDetails> => {
     const ai = getAiClient();
     const base64Image = await fileToBase64(specSheetFile);
     const imagePart = {
@@ -87,13 +87,16 @@ const generateBaseProductDetails = async (specSheetFile: File, baseProductName: 
             data: base64Image.split(',')[1],
         },
     };
-    const prompt = `Based on the provided furniture spec sheet for a "${baseProductName}", generate the following for an e-commerce store:
-1.  **names**: An array of 3-5 creative and marketable product names. The first one should be the most conventional.
-2.  **suggestedPrice**: A suggested retail price in USD, formatted as a string like "$1,299.99". Base this on the product's likely quality, materials, and size.
-3.  **description**: A creative and appealing product description (in plain text, using newlines for paragraph breaks).
-4.  **tags**: A list of 5-7 relevant product tags.
-5.  **seoTitle**: A concise SEO title (under 60 characters).
-6.  **seoDescription**: A compelling SEO meta description (under 160 characters).`;
+    const prompt = `Based on the provided furniture spec sheet for a "${baseProductName}", generate the following for an e-commerce store. 
+    
+    User specific instructions for tone, style, or details: "${userInstructions}"
+    
+    1.  **names**: An array of 3-5 creative and marketable product names. The first one should be the most conventional.
+    2.  **suggestedPrice**: A suggested retail price in USD, formatted as a string like "$1,299.99". Base this on the product's likely quality, materials, and size.
+    3.  **description**: A creative and appealing product description (in plain text, using newlines for paragraph breaks).
+    4.  **tags**: A list of 5-7 relevant product tags.
+    5.  **seoTitle**: A concise SEO title (under 60 characters).
+    6.  **seoDescription**: A compelling SEO meta description (under 160 characters).`;
 
     const response = await ai.models.generateContent({
         model: 'gemini-2.5-pro',
@@ -167,7 +170,8 @@ export const editImageWithGemini = async (sources: string[], prompt: string): Pr
         contentParts.push({ inlineData: { data: base64Data, mimeType } });
     }
     
-    contentParts.push({ text: prompt });
+    const finalPrompt = `${preservationInstruction}\n\nUser request: "${prompt}"`;
+    contentParts.push({ text: finalPrompt });
     
     const response = await ai.models.generateContent({
         model: 'gemini-2.5-flash-image',
@@ -186,6 +190,7 @@ export const editImageWithGemini = async (sources: string[], prompt: string): Pr
 
 export const generateVariationsFromSpecSheet = async (
   sourceFiles: File[],
+  userInstructions: string,
   updateMessage: (message: string) => void,
 ): Promise<GeneratedContent> => {
   if (sourceFiles.length === 0) {
@@ -198,10 +203,13 @@ export const generateVariationsFromSpecSheet = async (
   const { productName, variations } = parsedData;
 
   updateMessage('Generating base product details...');
-  const baseDetails = await generateBaseProductDetails(specSheetFile, productName);
+  const baseDetails = await generateBaseProductDetails(specSheetFile, productName, userInstructions);
   
   const variationResults: VariationResult[] = [];
   const totalVariations = variations.length;
+
+  // Add user instructions to the prompt context if provided
+  const instructionsText = userInstructions ? `User specific instructions: "${userInstructions}".` : "";
 
   for (let i = 0; i < totalVariations; i++) {
     const variation = variations[i].attributes;
@@ -212,7 +220,7 @@ export const generateVariationsFromSpecSheet = async (
     const variationImages: GeneratedImage[] = [];
 
     // --- Generate Studio Image ---
-    const studioPrompt = `Using the provided images as a visual guide (especially the spec sheet), create a professional product photo of the ${primaryProductName}. Variation details: Size is ${variation.Size}, color is ${variation.Color}. Place it on a pure white, seamless background (#FFFFFF). The lighting must be soft and even to showcase the form and hyper-realistic material textures. Add a subtle ground shadow for realism. The final image must be an ultra-realistic, 8k resolution photograph. ${upscaleInstruction}`;
+    const studioPrompt = `Using the provided images as a visual guide (especially the spec sheet), create a professional product photo of the ${primaryProductName}. Variation details: Size is ${variation.Size}, color is ${variation.Color}. Place it on a pure white, seamless background (#FFFFFF). The lighting must be soft and even to showcase the form. Add a subtle ground shadow for realism. The final image must be an ultra-realistic, 8k resolution photograph. ${instructionsText} ${preservationInstruction}`;
     const studioBase64 = await regenerateImageFromSource(sourceFiles, studioPrompt);
     variationImages.push({
         id: crypto.randomUUID(),
@@ -226,7 +234,7 @@ export const generateVariationsFromSpecSheet = async (
 
     // --- Generate Lifestyle Image ---
     updateMessage(`Generating lifestyle scene for variation ${i + 1}/${totalVariations}...`);
-    const lifestylePrompt = `Using the provided images as a visual guide (especially the spec sheet), create a trendy, aspirational lifestyle image of the ${primaryProductName}. Variation details: Size is ${variation.Size}, color is ${variation.Color}. Place it in a beautifully styled, minimalist interior with a Japandi or Scandinavian aesthetic. The lighting must be bright, soft, and natural. The composition should be impeccable. The final image must be an ultra-realistic photograph. ${upscaleInstruction}`;
+    const lifestylePrompt = `Using the provided images as a visual guide (especially the spec sheet), create a trendy, aspirational lifestyle image of the ${primaryProductName}. Variation details: Size is ${variation.Size}, color is ${variation.Color}. Place it in a beautifully styled, minimalist interior with a Japandi or Scandinavian aesthetic. The lighting must be bright, soft, and natural. The composition should be impeccable. The final image must be an ultra-realistic photograph. ${instructionsText} ${preservationInstruction}`;
     const lifestyleBase64 = await regenerateImageFromSource(sourceFiles, lifestylePrompt);
     variationImages.push({
         id: crypto.randomUUID(),
