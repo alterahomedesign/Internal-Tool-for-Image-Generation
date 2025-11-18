@@ -2,7 +2,8 @@ import React from 'react';
 import { GeneratedContent, GeneratedImage } from '../types';
 import { ImageCard } from './ImageCard';
 import { downloadAllImagesAsZip, formatDimensions } from '../utils/fileUtils';
-import { DownloadIcon } from './icons';
+import { generateShopifyCSV } from '../utils/shopifyUtils';
+import { DownloadIcon, ShopifyIcon } from './icons';
 import { CopyButton } from './CopyButton';
 
 interface ResultsDisplayProps {
@@ -22,6 +23,10 @@ export const ResultsDisplay: React.FC<ResultsDisplayProps> = ({
 
   const handleDownloadAll = () => {
     downloadAllImagesAsZip(variationResults, baseDetails.names[0] || 'product');
+  };
+
+  const handleShopifyExport = () => {
+    generateShopifyCSV(content);
   };
 
   const getVariationTitle = (variation: Record<string, string>): string => {
@@ -44,13 +49,21 @@ export const ResultsDisplay: React.FC<ResultsDisplayProps> = ({
             <h2 className="text-3xl font-extrabold text-gray-900">Your Photoshoot is Ready!</h2>
             <p className="mt-2 text-lg text-gray-600">Review, edit, and download the generated assets for all product variations.</p>
           </div>
-          <div className="flex flex-col sm:flex-row gap-2 flex-shrink-0">
+          <div className="flex flex-col sm:flex-row gap-3 flex-shrink-0 w-full md:w-auto">
+             <button
+              onClick={handleShopifyExport}
+              className="flex-1 inline-flex items-center justify-center px-5 py-3 border border-gray-300 text-base font-medium rounded-md shadow-sm text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition-all"
+              title="Download a CSV file formatted for Shopify import."
+            >
+              <ShopifyIcon />
+              Export CSV
+            </button>
             <button
               onClick={handleDownloadAll}
-              className="inline-flex items-center justify-center px-5 py-3 border border-transparent text-base font-medium rounded-md shadow-sm text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition-all"
+              className="flex-1 inline-flex items-center justify-center px-5 py-3 border border-transparent text-base font-medium rounded-md shadow-sm text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition-all"
             >
               <DownloadIcon />
-              Download All Images (.zip)
+              Download Images (.zip)
             </button>
           </div>
         </div>
