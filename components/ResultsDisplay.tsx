@@ -1,9 +1,10 @@
+
 import React from 'react';
 import { GeneratedContent, GeneratedImage } from '../types';
 import { ImageCard } from './ImageCard';
 import { downloadAllImagesAsZip, formatDimensions } from '../utils/fileUtils';
 import { generateShopifyCSV } from '../utils/shopifyUtils';
-import { DownloadIcon, ShopifyIcon } from './icons';
+import { DownloadIcon, ShopifyIcon, CopyIcon } from './icons';
 import { CopyButton } from './CopyButton';
 
 interface ResultsDisplayProps {
@@ -27,6 +28,11 @@ export const ResultsDisplay: React.FC<ResultsDisplayProps> = ({
 
   const handleShopifyExport = () => {
     generateShopifyCSV(content);
+  };
+
+  const handleCopyTags = () => {
+      const tagsString = baseDetails.tags.join(', ');
+      navigator.clipboard.writeText(tagsString);
   };
 
   const getVariationTitle = (variation: Record<string, string>): string => {
@@ -94,10 +100,21 @@ export const ResultsDisplay: React.FC<ResultsDisplayProps> = ({
                 <div className="prose prose-sm max-w-none text-gray-600">
                     {baseDetails.description.split('\n').map((p, i) => <p key={i}>{p}</p>)}
                 </div>
-                 <div className="flex flex-wrap gap-2">
-                    {baseDetails.tags.map(tag => (
-                        <span key={tag} className="px-2 py-1 bg-gray-200 text-gray-700 rounded-md text-xs font-medium">{tag}</span>
-                    ))}
+                 <div className="relative">
+                    <div className="flex items-center justify-between mb-1">
+                        <p className="text-sm text-gray-500">Tags:</p>
+                         <button 
+                            onClick={handleCopyTags} 
+                            className="text-xs text-indigo-600 hover:text-indigo-800 flex items-center gap-1"
+                        >
+                            <CopyIcon /> Copy All Tags
+                        </button>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                        {baseDetails.tags.map(tag => (
+                            <span key={tag} className="px-2 py-1 bg-gray-200 text-gray-700 rounded-md text-xs font-medium">{tag}</span>
+                        ))}
+                    </div>
                 </div>
             </div>
             <div className="space-y-4">
@@ -112,31 +129,35 @@ export const ResultsDisplay: React.FC<ResultsDisplayProps> = ({
 
       {/* Image Sections per Variation */}
       <div className="space-y-10">
-        {variationResults.map(result => (
-          <div key={result.id}>
-              <div className="mb-6 pb-2 border-b border-gray-300">
-                <h3 className="text-2xl font-bold text-gray-800">
-                    Variation: <span className="text-indigo-600">{getVariationTitle(result.variation)}</span>
-                </h3>
-                {result.variation.Dimensions && (
-                    <p className="mt-1 text-sm text-gray-500">
-                        {formatDimensions(result.variation.Dimensions)}
-                    </p>
-                )}
-              </div>
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-              {result.images.map((image) => (
-                  <ImageCard
-                  key={image.id}
-                  image={image}
-                  onEdit={(imageId, prompt) => onEditImage(result.id, imageId, prompt)}
-                  onRegenerate={(img, newPrompt) => onRegenerateImage(result.id, img, newPrompt)}
-                  isEditing={editingImageId === image.id}
-                  />
-              ))}
-              </div>
-          </div>
-        ))}
+        {variationResults.map(result => {
+            const formattedDims = formatDimensions(result.variation.Dimensions);
+            return (
+            <div key={result.id}>
+                <div className="mb-6 pb-2 border-b border-gray-300">
+                    <h3 className="text-2xl font-bold text-gray-800">
+                        Variation: <span className="text-indigo-600">{getVariationTitle(result.variation)}</span>
+                    </h3>
+                    {formattedDims && (
+                        <div className="mt-2 flex items-center gap-2 bg-gray-50 p-2 rounded w-fit">
+                            <span className="text-sm font-mono text-gray-700">{formattedDims}</span>
+                            <CopyButton textToCopy={formattedDims} className="p-1 text-gray-500 hover:text-indigo-600" />
+                        </div>
+                    )}
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+                {result.images.map((image) => (
+                    <ImageCard
+                    key={image.id}
+                    image={image}
+                    onEdit={(imageId, prompt) => onEditImage(result.id, imageId, prompt)}
+                    onRegenerate={(img, newPrompt) => onRegenerateImage(result.id, img, newPrompt)}
+                    isEditing={editingImageId === image.id}
+                    />
+                ))}
+                </div>
+            </div>
+            );
+        })}
       </div>
     </div>
   );

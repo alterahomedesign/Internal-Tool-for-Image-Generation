@@ -1,4 +1,5 @@
 import { GeneratedContent } from '../types';
+import { formatDimensions } from './fileUtils';
 
 export const generateShopifyCSV = (content: GeneratedContent): void => {
   const { baseDetails, variationResults, furnitureCategory } = content;
@@ -37,7 +38,8 @@ export const generateShopifyCSV = (content: GeneratedContent): void => {
     "Image Position", 
     "Image Alt Text",
     "SEO Title",
-    "SEO Description"
+    "SEO Description",
+    "Variant Metafield: custom.dimensions [single_line_text_field]"
   ];
 
   const rows: string[][] = [];
@@ -73,6 +75,12 @@ export const generateShopifyCSV = (content: GeneratedContent): void => {
     const opt3Value = optionNames.length > 2 ? variation[optionNames[2]] : "";
 
     const sku = `${handle}-${index + 1}`; // Generate a simple SKU
+    
+    // Identify dimensions key for the metafield
+    // The gemini service generally outputs "Dimensions" or "dimensions"
+    const dimKey = Object.keys(variation).find(k => k.toLowerCase() === 'dimensions');
+    const rawDimensions = dimKey ? variation[dimKey] : '';
+    const formattedDimensions = formatDimensions(rawDimensions);
 
     // Note: We cannot import local base64 images via CSV. 
     // Users must upload images manually or use a hosting service.
@@ -105,7 +113,8 @@ export const generateShopifyCSV = (content: GeneratedContent): void => {
         "", // Image Position
         "", // Image Alt Text
         baseDetails.seoTitle,
-        baseDetails.seoDescription
+        baseDetails.seoDescription,
+        formattedDimensions // Metafield Value
     ];
 
     rows.push(row.map(escape));

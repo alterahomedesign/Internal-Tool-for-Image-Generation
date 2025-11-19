@@ -1,3 +1,4 @@
+
 import { GoogleGenAI, Type, Modality, ContentPart } from "@google/genai";
 import { GeneratedContent, GeneratedImage, ProductDetails, VariationResult } from '../types';
 import { fileToBase64 } from "../utils/fileUtils";
@@ -5,7 +6,9 @@ import { fileToBase64 } from "../utils/fileUtils";
 // Lazily initialize the AI client to prevent app crash on load if API key is missing.
 const getAiClient = () => new GoogleGenAI({ apiKey: process.env.API_KEY });
 
-const preservationInstruction = "**CRITICAL INSTRUCTION: You MUST preserve the exact design, shape, proportions, and materials of the furniture from the source images. DO NOT add, remove, or alter any part of the furniture's design. Your ONLY task is to place this exact piece of furniture into the described scene or modify the scene around it. If the source image is low resolution, upscale it while strictly maintaining the original textures and details.**";
+const preservationInstruction = "**CRITICAL INSTRUCTION: You MUST preserve the exact design, shape, proportions, and materials of the furniture from the source images. DO NOT add, remove, or alter any part of the furniture's design. Your ONLY task is to place this exact piece of furniture into the described scene or modify the scene around it. If the source image is low resolution, upscale it while strictly maintaining the original textures and details. DO NOT include any text, dimensions, measurements, arrows, lines, or annotations in the image. The image must be a clean, professional photograph without any graphic overlays or artifacts.**";
+
+const cleanImageInstruction = "The final image must be a single, full-frame, clean photograph. DO NOT include any text, numbers, measurements, arrows, diagrams, watermarks, or overlay graphics. DO NOT produce a collage, split screen, grid, or multi-view composition. DO NOT include black lines or dividers. DO NOT include vignetting, grey corners, or lighting artifacts in the background. The lighting should be natural and soft, avoiding harsh artificial highlights.";
 
 interface ParsedSpecSheet {
     productName: string;
@@ -15,41 +18,52 @@ interface ParsedSpecSheet {
     }[];
 }
 
-const parseSpecSheet = async (specSheetFile: File): Promise<ParsedSpecSheet> => {
+const parseSpecSheet = async (sourceFiles: File[]): Promise<ParsedSpecSheet> => {
     const ai = getAiClient();
-    const base64Image = await fileToBase64(specSheetFile);
-    const imagePart = {
-        inlineData: {
-            mimeType: specSheetFile.type,
-            data: base64Image.split(',')[1],
-        },
-    };
+    
+    // We send all images (up to 3 to save tokens/latency) to check for spec data
+    const maxFilesToCheck = Math.min(sourceFiles.length, 4);
+    const contentParts: ContentPart[] = [];
+
+    for (let i = 0; i < maxFilesToCheck; i++) {
+        const base64Image = await fileToBase64(sourceFiles[i]);
+         contentParts.push({
+            inlineData: {
+                mimeType: sourceFiles[i].type,
+                data: base64Image.split(',')[1],
+            },
+        });
+    }
 
     const prompt = `
-        You are an expert at analyzing furniture specification sheets. Your task is to extract all relevant information from the provided image and structure it as a JSON object.
+        Analyze the provided images. Some may be photos of furniture, others might be a technical specification sheet containing text and charts.
 
-        1.  **Product Info**: Identify the general product description/name (e.g., 'Fabric sofa') and the model number.
-        2.  **Variation Axes**: Identify all properties that have multiple options, such as 'SPEC.(CM)', 'REMARK/COMBINATION/VERSION', and 'COLOR'. These are your variation axes.
-        3.  **Variation Options**: For each axis, list the available options. The 'COLOR' column says '2 colors'; look at the images in the 'SPEC. PIC' column to identify the actual colors (e.g., 'Grey', 'Beige') and use them in the variations.
-        4.  **Combinations**: Create a list of every possible combination of the variation options. For this sheet, it's a combination of each size with each color.
-        5.  **Attributes**: For each combination, create a dictionary of its attributes.
+        Your goal is to extract product information.
 
-        Return a JSON object that adheres to the provided schema. Ensure every single variation is listed.
+        1.  **Search for Spec Data**: Look for a table, chart, or text that lists Model Number, Colors, Sizes, or Dimensions.
+        2.  **If Spec Data Exists**: Extract the Product Name, Model Number, and all Variations (Combinations of Color/Size).
+        3.  **If NO Spec Data Exists (Just Photos)**:
+            *   Identify the type of furniture (e.g., "Modern Armchair").
+            *   Estimate the dimensions based on standard furniture sizes (format: L*W*H CM).
+            *   Identify the color and material shown in the photos.
+            *   Create a single "Default" variation with these observed attributes.
+
+        Return a JSON object adhering to the schema.
     `;
 
     const response = await ai.models.generateContent({
         model: 'gemini-2.5-pro',
-        contents: { parts: [imagePart, { text: prompt }] },
+        contents: { parts: [...contentParts, { text: prompt }] },
         config: {
             responseMimeType: 'application/json',
             responseSchema: {
                 type: Type.OBJECT,
                 properties: {
-                    productName: { type: Type.STRING, description: "A general name for the product, like 'Fabric Sofa'." },
-                    modelNo: { type: Type.STRING, description: "The model number, like 'LP-A813'." },
+                    productName: { type: Type.STRING, description: "A general name for the product." },
+                    modelNo: { type: Type.STRING, description: "The model number if found, otherwise 'N/A'." },
                     variations: {
                         type: Type.ARRAY,
-                        description: "An array containing every single possible product variation.",
+                        description: "An array containing every single possible product variation. If no variations found, return one entry representing the product shown.",
                         items: {
                             type: Type.OBJECT,
                             properties: {
@@ -57,10 +71,10 @@ const parseSpecSheet = async (specSheetFile: File): Promise<ParsedSpecSheet> => 
                                     type: Type.OBJECT,
                                     description: "A key-value map of the variation's attributes.",
                                     properties: {
-                                        Size: { type: Type.STRING, description: "e.g., 'Three seats'" },
-                                        Dimensions: { type: Type.STRING, description: "e.g., '240*100*78CM'" },
+                                        Size: { type: Type.STRING, description: "e.g., 'Standard' or 'Three seats'" },
+                                        Dimensions: { type: Type.STRING, description: "e.g., '240*100*78CM'. Must estimate if not found." },
                                         Color: { type: Type.STRING, description: "The identified color name, e.g., 'Beige'" },
-                                        Material: { type: Type.STRING, description: "e.g., 'Abrasive/suede fabric'" }
+                                        Material: { type: Type.STRING, description: "e.g., 'Velvet' or 'Wood'" }
                                     },
                                     required: ["Size", "Dimensions", "Color", "Material"]
                                 }
@@ -78,16 +92,17 @@ const parseSpecSheet = async (specSheetFile: File): Promise<ParsedSpecSheet> => 
 };
 
 
-const generateBaseProductDetails = async (specSheetFile: File, baseProductName: string, userInstructions: string): Promise<ProductDetails> => {
+const generateBaseProductDetails = async (sourceFiles: File[], baseProductName: string, userInstructions: string): Promise<ProductDetails> => {
     const ai = getAiClient();
-    const base64Image = await fileToBase64(specSheetFile);
+    // Use the first image as the main visual reference for description
+    const base64Image = await fileToBase64(sourceFiles[0]);
     const imagePart = {
         inlineData: {
-            mimeType: specSheetFile.type,
+            mimeType: sourceFiles[0].type,
             data: base64Image.split(',')[1],
         },
     };
-    const prompt = `Based on the provided furniture spec sheet for a "${baseProductName}", generate the following for an e-commerce store. 
+    const prompt = `Based on the provided furniture image(s) for a "${baseProductName}", generate the following for an e-commerce store. 
     
     User specific instructions for tone, style, or details: "${userInstructions}"
     
@@ -170,7 +185,7 @@ export const editImageWithGemini = async (sources: string[], prompt: string): Pr
         contentParts.push({ inlineData: { data: base64Data, mimeType } });
     }
     
-    const finalPrompt = `${preservationInstruction}\n\nUser request: "${prompt}"`;
+    const finalPrompt = `${preservationInstruction}\n${cleanImageInstruction}\n\nUser request: "${prompt}"`;
     contentParts.push({ text: finalPrompt });
     
     const response = await ai.models.generateContent({
@@ -194,22 +209,23 @@ export const generateVariationsFromSpecSheet = async (
   updateMessage: (message: string) => void,
 ): Promise<GeneratedContent> => {
   if (sourceFiles.length === 0) {
-    throw new Error("At least one source image (the spec sheet) must be provided.");
+    throw new Error("At least one source image must be provided.");
   }
-  const specSheetFile = sourceFiles[0];
 
-  updateMessage('Analyzing specification sheet...');
-  const parsedData = await parseSpecSheet(specSheetFile);
+  updateMessage('Analyzing images for product details...');
+  const parsedData = await parseSpecSheet(sourceFiles);
   const { productName, variations } = parsedData;
 
   updateMessage('Generating base product details...');
-  const baseDetails = await generateBaseProductDetails(specSheetFile, productName, userInstructions);
+  const baseDetails = await generateBaseProductDetails(sourceFiles, productName, userInstructions);
   
   const variationResults: VariationResult[] = [];
   const totalVariations = variations.length;
 
   // Add user instructions to the prompt context if provided
   const instructionsText = userInstructions ? `User specific instructions: "${userInstructions}".` : "";
+  
+  const photographyStyle = "Award-winning product photography, shot on 85mm lens, f/8 aperture for sharp focus with subtle depth of field. Soft, diffused natural studio lighting. Ultra-high resolution, 8k, highly detailed textures. Super natural, tangible, and organic look. No CGI gloss, no artifacts.";
 
   for (let i = 0; i < totalVariations; i++) {
     const variation = variations[i].attributes;
@@ -219,32 +235,98 @@ export const generateVariationsFromSpecSheet = async (
     const primaryProductName = baseDetails.names[0] || productName;
     const variationImages: GeneratedImage[] = [];
 
-    // --- Generate Studio Image ---
-    const studioPrompt = `Using the provided images as a visual guide (especially the spec sheet), create a professional product photo of the ${primaryProductName}. Variation details: Size is ${variation.Size}, color is ${variation.Color}. Place it on a pure white, seamless background (#FFFFFF). The lighting must be soft and even to showcase the form. Add a subtle ground shadow for realism. The final image must be an ultra-realistic, 8k resolution photograph. ${instructionsText} ${preservationInstruction}`;
-    const studioBase64 = await regenerateImageFromSource(sourceFiles, studioPrompt);
+    // --- Studio Shot (Front View) - Always Generate ---
+    // Strict prompt to avoid top-left grey shadings
+    const studioPromptFront = `Using the provided images as a visual guide, create a professional Front View product photo of the ${primaryProductName}. Variation details: Size is ${variation.Size}, color is ${variation.Color}. Place it on a completely flat, pure white background (Hex #FFFFFF). The background must be evenly lit from edge-to-edge with NO grey shadings, NO shadows in the top corners, NO vignetting, and NO horizon line. It should be a perfect cutout-style white background. ${photographyStyle} ${instructionsText} ${preservationInstruction} ${cleanImageInstruction}`;
+    const studioBase64 = await regenerateImageFromSource(sourceFiles, studioPromptFront);
     variationImages.push({
         id: crypto.randomUUID(),
         title: 'Studio Shot (Front View)',
-        description: 'Clean shot on a white background.',
+        description: 'High quality front view on white background.',
         base64: studioBase64,
-        sourcePrompt: studioPrompt,
+        sourcePrompt: studioPromptFront,
         sourceAspectRatio: '16:9',
         category: 'studio',
     });
 
-    // --- Generate Lifestyle Image ---
-    updateMessage(`Generating lifestyle scene for variation ${i + 1}/${totalVariations}...`);
-    const lifestylePrompt = `Using the provided images as a visual guide (especially the spec sheet), create a trendy, aspirational lifestyle image of the ${primaryProductName}. Variation details: Size is ${variation.Size}, color is ${variation.Color}. Place it in a beautifully styled, minimalist interior with a Japandi or Scandinavian aesthetic. The lighting must be bright, soft, and natural. The composition should be impeccable. The final image must be an ultra-realistic photograph. ${instructionsText} ${preservationInstruction}`;
-    const lifestyleBase64 = await regenerateImageFromSource(sourceFiles, lifestylePrompt);
-    variationImages.push({
-        id: crypto.randomUUID(),
-        title: 'Minimalist Lifestyle Scene',
-        description: 'Product shown in a stylish, modern home.',
-        base64: lifestyleBase64,
-        sourcePrompt: lifestylePrompt,
-        sourceAspectRatio: '16:9',
-        category: 'lifestyle',
-    });
+    // --- Studio Shot (3/4 View) - Generate if Single Variation ---
+    if (totalVariations === 1) {
+         updateMessage(`Generating 3/4 angle view...`);
+         // Strict prompt to avoid top-left grey shadings
+         const studioPromptAngle = `Using the provided images as a visual guide, create a professional 3/4 Angle View product photo of the ${primaryProductName}. Show the depth and side details. Variation details: Size is ${variation.Size}, color is ${variation.Color}. Place it on a completely flat, pure white background (Hex #FFFFFF). The background must be evenly lit from edge-to-edge with NO grey shadings, NO shadows in the top corners, NO vignetting, and NO horizon line. It should be a perfect cutout-style white background. ${photographyStyle} ${instructionsText} ${preservationInstruction} ${cleanImageInstruction}`;
+         const studioBase64Angle = await regenerateImageFromSource(sourceFiles, studioPromptAngle);
+         variationImages.push({
+             id: crypto.randomUUID(),
+             title: 'Studio Shot (3/4 View)',
+             description: 'High quality 3/4 angle view on white background.',
+             base64: studioBase64Angle,
+             sourcePrompt: studioPromptAngle,
+             sourceAspectRatio: '16:9',
+             category: 'studio',
+         });
+    }
+
+    // --- Lifestyle Images ---
+    if (totalVariations === 1) {
+        // Rule: If only 1 variation (or no spec sheet found), generate 3 distinct lifestyle images.
+        
+        // Lifestyle 1: Standard Living Area
+        updateMessage(`Generating lifestyle scene 1/3...`);
+        const lifestylePrompt1 = `Using the provided images as a visual guide, create a super natural, high-end lifestyle image of the ${primaryProductName}. Place it in a beautifully styled, minimalist living room with a Japandi aesthetic. Soft, organic natural daylight entering from a window. The room should feel lived-in but tidy. ${photographyStyle} ${instructionsText} ${preservationInstruction} ${cleanImageInstruction}`;
+        const lifestyleBase64_1 = await regenerateImageFromSource(sourceFiles, lifestylePrompt1);
+        variationImages.push({
+            id: crypto.randomUUID(),
+            title: 'Lifestyle: Living Space',
+            description: 'Natural minimalist living room context.',
+            base64: lifestyleBase64_1,
+            sourcePrompt: lifestylePrompt1,
+            sourceAspectRatio: '16:9',
+            category: 'lifestyle',
+        });
+
+        // Lifestyle 2: Detail/Close-up or Cozy Corner
+        updateMessage(`Generating lifestyle scene 2/3...`);
+        const lifestylePrompt2 = `Using the provided images as a visual guide, create a cozy, atmospheric lifestyle image of the ${primaryProductName}. Focus on the texture of the materials. Place it in a warm, inviting corner with soft evening light and organic decor elements like a plant or a rug. ${photographyStyle} ${instructionsText} ${preservationInstruction} ${cleanImageInstruction}`;
+        const lifestyleBase64_2 = await regenerateImageFromSource(sourceFiles, lifestylePrompt2);
+        variationImages.push({
+            id: crypto.randomUUID(),
+            title: 'Lifestyle: Atmospheric/Cozy',
+            description: 'Warm lighting with focus on texture and atmosphere.',
+            base64: lifestyleBase64_2,
+            sourcePrompt: lifestylePrompt2,
+            sourceAspectRatio: '16:9',
+            category: 'lifestyle',
+        });
+
+         // Lifestyle 3: High-End/Editorial
+         updateMessage(`Generating lifestyle scene 3/3...`);
+         const lifestylePrompt3 = `Using the provided images as a visual guide, create a high-end editorial style image of the ${primaryProductName}. Place it in a spacious, architectural concrete loft or gallery space. Dramatic but soft shadows, strong composition, magazine quality. ${photographyStyle} ${instructionsText} ${preservationInstruction} ${cleanImageInstruction}`;
+         const lifestyleBase64_3 = await regenerateImageFromSource(sourceFiles, lifestylePrompt3);
+         variationImages.push({
+             id: crypto.randomUUID(),
+             title: 'Lifestyle: Architectural Loft',
+             description: 'High-end editorial style in a loft.',
+             base64: lifestyleBase64_3,
+             sourcePrompt: lifestylePrompt3,
+             sourceAspectRatio: '16:9',
+             category: 'lifestyle',
+         });
+
+    } else {
+        // Standard behavior for multiple variations: 1 Lifestyle shot per variation
+        updateMessage(`Generating lifestyle scene for variation ${i + 1}/${totalVariations}...`);
+        const lifestylePrompt = `Using the provided images as a visual guide, create a trendy, aspirational lifestyle image of the ${primaryProductName}. Variation details: Size is ${variation.Size}, color is ${variation.Color}. Place it in a beautifully styled, minimalist interior with a Japandi or Scandinavian aesthetic. The lighting must be bright, soft, and natural. ${photographyStyle} ${instructionsText} ${preservationInstruction} ${cleanImageInstruction}`;
+        const lifestyleBase64 = await regenerateImageFromSource(sourceFiles, lifestylePrompt);
+        variationImages.push({
+            id: crypto.randomUUID(),
+            title: 'Minimalist Lifestyle Scene',
+            description: 'Product shown in a stylish, modern home.',
+            base64: lifestyleBase64,
+            sourcePrompt: lifestylePrompt,
+            sourceAspectRatio: '16:9',
+            category: 'lifestyle',
+        });
+    }
 
     variationResults.push({
       id: crypto.randomUUID(),

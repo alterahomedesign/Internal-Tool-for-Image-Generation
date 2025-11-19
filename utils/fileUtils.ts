@@ -1,3 +1,4 @@
+
 import { VariationResult } from '../types';
 
 declare const JSZip: any;
@@ -29,13 +30,38 @@ export const formatDimensions = (dimensionsStr: string | undefined): string => {
     return dimensionsStr;
   }
 
-  const cmToInch = (cm: number) => (cm / 2.54).toFixed(2);
+  // Helper to convert cm to inch fraction (nearest 1/8)
+  const toFractionalInch = (cm: number): string => {
+    const inches = cm / 2.54;
+    const whole = Math.floor(inches);
+    const remainder = inches - whole;
+    
+    // Round to nearest 1/8
+    const eights = Math.round(remainder * 8);
 
-  const lengthIn = cmToInch(lengthCm);
-  const widthIn = cmToInch(widthCm);
-  const heightIn = cmToInch(heightCm);
+    if (eights === 0) return `${whole}"`;
+    if (eights === 8) return `${whole + 1}"`;
 
-  return `${lengthCm}cm (${lengthIn}") length x ${widthCm}cm (${widthIn}") width x ${heightCm}cm (${heightIn}") height`;
+    // Simplify fractions
+    let numerator = eights;
+    let denominator = 8;
+    
+    if (numerator % 4 === 0) {
+        numerator /= 4;
+        denominator /= 4;
+    } else if (numerator % 2 === 0) {
+        numerator /= 2;
+        denominator /= 2;
+    }
+
+    return `${whole} ${numerator}/${denominator}"`;
+  };
+
+  const lengthIn = toFractionalInch(lengthCm);
+  const widthIn = toFractionalInch(widthCm);
+  const heightIn = toFractionalInch(heightCm);
+
+  return `${lengthCm}cm (${lengthIn}) length x ${widthCm}cm (${widthIn}) width x ${heightCm}cm (${heightIn}) height`;
 };
 
 const getVariationPrefix = (variation: Record<string, string>): string => {
